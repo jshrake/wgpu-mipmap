@@ -1,8 +1,17 @@
 [package]
 name = "wgpu-mipmap"
 version = "0.1.0"
-authors = ["Justin Shrake <justinshrake@gmail.com>"]
 edition = "2018"
+authors = ["Justin Shrake <justinshrake@gmail.com>"]
+description = "Generate mipmaps for wgpu textures"
+repository = "https://github.com/jshrake/wgpu-mipmap"
+license = "MIT"
+license-file = "LICENSE"
+readme = "README.md"
+keywords = ["wgpu", "graphics", "mipmaps"]
+categories = ["graphics", "rendering"]
+maintenance = {status="actively-developed"}
+exclude = ["examples/**/*", ".github/**/*"]
 
 [features]
 debug = ["renderdoc"]
