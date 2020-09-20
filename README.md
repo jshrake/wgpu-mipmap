@@ -1,6 +1,8 @@
 # wgpu-mipmap
 
-![ci](https://github.com/jshrake/wgpu-mipmap/workflows/ci/badge.svg)
+[![](https://github.com/jshrake/wgpu-mipmap/workflows/ci/badge.svg)](https://github.com/jshrake/wgpu-mipmap/actions?query=workflow%3Aci)
+[![](https://meritbadge.herokuapp.com/wgpu-mipmap)](https://crates.io/crates/wgpu-mipmap)
+[![Docs.rs](https://docs.rs/wgpu-mipmap/badge.svg)](https://docs.rs/wgpu-mipmap)
 
 Generate mipmaps for [wgpu](https://github.com/gfx-rs/wgpu-rs) textures.
 
