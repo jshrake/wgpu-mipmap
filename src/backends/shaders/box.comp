@@ -1,0 +1,26 @@
+// This is a template file!
+// It is expectd that you wiill generate a real file from it using envsubst:
+//
+// FORMAT=rgba8 envsubst box.comp
+
+#version 450
+// The size values must match the values specified in
+// backends/compute.rs
+layout(local_size_x = 32, local_size_y = 32) in;
+
+layout(set = 0, binding = 0, ${FORMAT}) uniform readonly image2D u_src;
+layout(set = 0, binding = 1, ${FORMAT}) uniform writeonly image2D u_dst;
+
+// Clamp to edge
+#define L(u) imageLoad(u_src, clamp(u, ivec2(0), ivec2(imageSize(u_src) - 1)))
+
+void main() {
+  ivec2 dst_uv = ivec2(gl_GlobalInvocationID.xy);
+  ivec2 src_uv = 2 * dst_uv;
+  vec4 l = L(src_uv + ivec2(0, 0));
+  vec4 r = L(src_uv + ivec2(1, 0));
+  vec4 u = L(src_uv + ivec2(0, 1));
+  vec4 d = L(src_uv + ivec2(1, 1));
+  vec4 c = (l + r + u + d) / 4.0;
+  imageStore(u_dst, dst_uv, c);
+}

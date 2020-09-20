@@ -1,0 +1,76 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    env:
+      RUSTFLAGS: ${{ matrix.RUSTFLAGS }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            CHECK_COMMAND: cargo check --all-targets --verbose
+            TEST_COMMAND: cargo test --all-targets --no-run --verbose
+          - os: macos-latest
+            CHECK_COMMAND: cargo check --all-targets --verbose
+            TEST_COMMAND: cargo test --all-targets --no-run --verbose
+          - os: windows-latest
+            CHECK_COMMAND: rustup default stable-msvc && cargo check --all-targets --verbose
+            TEST_COMMAND: rustup default stable-msvc && cargo test --all-targets --no-run --verbose
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: cargo check
+        run: ${{ matrix.CHECK_COMMAND }}
+      - name: cargo test --no-run
+        run: ${{ matrix.TEST_COMMAND }}
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+      - name: Run cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+      - name: Run cargo clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -- -D warnings
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install latest nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+        continue-on-error: true
+      - name: cargo doc
+        run: cargo --version; cargo doc --lib --no-deps

@@ -1,0 +1,30 @@
+[package]
+name = "wgpu-mipmap"
+version = "0.1.0"
+authors = ["Justin Shrake <justinshrake@gmail.com>"]
+edition = "2018"
+
+[features]
+debug = ["renderdoc"]
+
+[dependencies]
+log = "0.4"
+# renderdoc is only used in the examples, but
+# cargo does not support optional dev dependencies
+renderdoc = {version = "0.9.1", optional=true}
+thiserror = "1.0"
+wgpu = "0.6"
+
+[dev-dependencies]
+bytemuck = "1.4.1"
+env_logger = "0.7.1"
+futures = "0.3"
+image = {version = "0.23", default-features = false, features = ["png"]}
+tracing = { version = "0.1", features = ["log"] }
+
+# TODO: Compiling for target=wasm32-unknown-unknown only works
+# against the HEAD of the master branch of wgpu-rs. Users
+# who wish to compile for this target will need to manually
+# fiddle with this for now.
+[patch.crates-io]
+#wgpu = {git = "https://github.com/gfx-rs/wgpu-rs", branch = "master"}
