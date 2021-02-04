@@ -1,6 +1,8 @@
-use crate::backends::RenderMipmapGenerator;
-use crate::core::*;
-use crate::util::get_mip_extent;
+use wgpu::{
+    CommandEncoder, Device, Origin3d, Texture, TextureCopyView, TextureDescriptor, TextureUsage,
+};
+
+use crate::{backends::RenderMipmapGenerator, core::*, util::get_mip_extent};
 
 /// Generates mipmaps for textures with sampled usage.
 pub struct CopyMipmapGenerator<'a> {
@@ -17,31 +19,31 @@ impl<'a> CopyMipmapGenerator<'a> {
 
     /// Returns the texture usage `CopyMipmapGenerator` requires for mipmap
     /// generation.
-    pub fn required_usage() -> wgpu::TextureUsage {
-        wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST
+    pub fn required_usage() -> TextureUsage {
+        TextureUsage::SAMPLED | TextureUsage::COPY_DST
     }
 }
 
 impl<'a> MipmapGenerator for CopyMipmapGenerator<'a> {
     fn generate(
         &self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        texture: &wgpu::Texture,
-        texture_descriptor: &wgpu::TextureDescriptor,
+        device: &Device,
+        encoder: &mut CommandEncoder,
+        texture: &Texture,
+        texture_descriptor: &TextureDescriptor,
     ) -> Result<(), Error> {
         // Create a temporary texture with half the resolution
         // of the original texture, and one less mip level
         // We'll generate mipmaps into this texture, then
         // copy the results back into the mip levels of the original texture
-        let tmp_descriptor = wgpu::TextureDescriptor {
+        let tmp_descriptor = TextureDescriptor {
             label: None,
             size: get_mip_extent(&texture_descriptor.size, 1),
             mip_level_count: texture_descriptor.mip_level_count - 1,
             sample_count: texture_descriptor.sample_count,
             dimension: texture_descriptor.dimension,
             format: texture_descriptor.format,
-            usage: RenderMipmapGenerator::required_usage() | wgpu::TextureUsage::COPY_SRC,
+            usage: RenderMipmapGenerator::required_usage() | TextureUsage::COPY_SRC,
         };
         let tmp_texture = device.create_texture(&tmp_descriptor);
         self.generator.generate_src_dst(
@@ -56,15 +58,15 @@ impl<'a> MipmapGenerator for CopyMipmapGenerator<'a> {
         let mip_count = tmp_descriptor.mip_level_count;
         for i in 0..mip_count {
             encoder.copy_texture_to_texture(
-                wgpu::TextureCopyView {
+                TextureCopyView {
                     texture: &tmp_texture,
                     mip_level: i,
-                    origin: wgpu::Origin3d::default(),
+                    origin: Origin3d::default(),
                 },
-                wgpu::TextureCopyView {
+                TextureCopyView {
                     texture: &texture,
                     mip_level: i + 1,
-                    origin: wgpu::Origin3d::default(),
+                    origin: Origin3d::default(),
                 },
                 get_mip_extent(&tmp_descriptor.size, i),
             );
@@ -134,10 +136,10 @@ mod tests {
             usage: CopyMipmapGenerator::required_usage(),
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let res = generate_test(&texture_descriptor).await;
             assert!(res.is_ok());
-        })());
+        });
     }
 
     #[test]
@@ -162,10 +164,10 @@ mod tests {
             usage: wgpu::TextureUsage::empty(),
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let res = generate_test(&texture_descriptor).await;
             assert!(res.is_err());
             assert!(res.err() == Some(Error::UnsupportedUsage(texture_descriptor.usage)));
-        })());
+        });
     }
 }

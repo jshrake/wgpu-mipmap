@@ -1,38 +1,41 @@
-use crate::core::*;
-use crate::util::get_mip_extent;
-use log::warn;
-use std::collections::HashMap;
+use crate::{core::*, util::get_mip_extent};
+use std::{collections::HashMap, num::NonZeroU32};
+use wgpu::{
+    util::make_spirv, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
+    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, CommandEncoder,
+    ComputePassDescriptor, ComputePipeline, ComputePipelineDescriptor, Device,
+    PipelineLayoutDescriptor, ShaderFlags, ShaderModule, ShaderModuleDescriptor, ShaderStage,
+    StorageTextureAccess, Texture, TextureAspect, TextureDescriptor, TextureDimension,
+    TextureFormat, TextureUsage, TextureViewDescriptor, TextureViewDimension,
+};
 
 /// Generates mipmaps for textures with storage usage.
 #[derive(Debug)]
 pub struct ComputeMipmapGenerator {
-    layout_cache: HashMap<wgpu::TextureFormat, wgpu::BindGroupLayout>,
-    pipeline_cache: HashMap<wgpu::TextureFormat, wgpu::ComputePipeline>,
+    layout_cache: HashMap<TextureFormat, BindGroupLayout>,
+    pipeline_cache: HashMap<TextureFormat, ComputePipeline>,
 }
 
 impl ComputeMipmapGenerator {
     /// Returns the texture usage `ComputeMipmapGenerator` requires for mipmap generation.
-    pub fn required_usage() -> wgpu::TextureUsage {
-        wgpu::TextureUsage::STORAGE
+    pub fn required_usage() -> TextureUsage {
+        TextureUsage::STORAGE
     }
 
     /// Creates a new `ComputeMipmapGenerator`. Once created, it can be used repeatedly to
     /// generate mipmaps for any texture with format specified in `format_hints`.
-    pub fn new_with_format_hints(
-        device: &wgpu::Device,
-        format_hints: &[wgpu::TextureFormat],
-    ) -> Self {
+    pub fn new_with_format_hints(device: &Device, format_hints: &[TextureFormat]) -> Self {
         let mut layout_cache = HashMap::new();
         let mut pipeline_cache = HashMap::new();
-        for format in format_hints {
+        for &format in format_hints {
             if let Some(module) = shader_for_format(device, format) {
                 let bind_group_layout = bind_group_layout_for_format(device, format);
                 let pipeline =
                     compute_pipeline_for_format(device, &module, &bind_group_layout, format);
-                layout_cache.insert(*format, bind_group_layout);
-                pipeline_cache.insert(*format, pipeline);
+                layout_cache.insert(format, bind_group_layout);
+                pipeline_cache.insert(format, pipeline);
             } else {
-                warn!(
+                log::warn!(
                     "ComputeMipmapGenerator does not support requested format {:?}",
                     format
                 );
@@ -49,10 +52,10 @@ impl ComputeMipmapGenerator {
 impl MipmapGenerator for ComputeMipmapGenerator {
     fn generate(
         &self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        texture: &wgpu::Texture,
-        texture_descriptor: &wgpu::TextureDescriptor,
+        device: &Device,
+        encoder: &mut CommandEncoder,
+        texture: &Texture,
+        texture_descriptor: &TextureDescriptor,
     ) -> Result<(), Error> {
         // Texture width and height must be a power of 2
         if !texture_descriptor.size.width.is_power_of_two()
@@ -61,7 +64,7 @@ impl MipmapGenerator for ComputeMipmapGenerator {
             return Err(Error::NpotTexture);
         }
         // Texture dimension must be 2D
-        if texture_descriptor.dimension != wgpu::TextureDimension::D2 {
+        if texture_descriptor.dimension != TextureDimension::D2 {
             return Err(Error::UnsupportedDimension(texture_descriptor.dimension));
         }
         if !texture_descriptor.usage.contains(Self::required_usage()) {
@@ -81,13 +84,13 @@ impl MipmapGenerator for ComputeMipmapGenerator {
         // TODO: Can we create the views every call?
         let views = (0..mip_count)
             .map(|base_mip_level| {
-                texture.create_view(&wgpu::TextureViewDescriptor {
+                texture.create_view(&TextureViewDescriptor {
                     label: None,
                     format: None,
                     dimension: None,
-                    aspect: wgpu::TextureAspect::All,
+                    aspect: TextureAspect::All,
                     base_mip_level,
-                    level_count: std::num::NonZeroU32::new(1),
+                    level_count: NonZeroU32::new(1),
                     array_layer_count: None,
                     base_array_layer: 0,
                 })
@@ -103,21 +106,21 @@ impl MipmapGenerator for ComputeMipmapGenerator {
             let src_view = &views[mip - 1];
             let dst_view = &views[mip];
             let mip_ext = get_mip_extent(&texture_descriptor.size, mip as u32);
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let bind_group = device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
+                    BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&src_view),
+                        resource: BindingResource::TextureView(&src_view),
                     },
-                    wgpu::BindGroupEntry {
+                    BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&dst_view),
+                        resource: BindingResource::TextureView(&dst_view),
                     },
                 ],
             });
-            let mut pass = encoder.begin_compute_pass();
+            let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor { label: None });
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
             pass.dispatch(
@@ -130,12 +133,14 @@ impl MipmapGenerator for ComputeMipmapGenerator {
     }
 }
 
-fn shader_for_format(
-    device: &wgpu::Device,
-    format: &wgpu::TextureFormat,
-) -> Option<wgpu::ShaderModule> {
-    use wgpu::TextureFormat;
-    let s = |d| Some(device.create_shader_module(wgpu::util::make_spirv(d)));
+fn shader_for_format(device: &Device, format: TextureFormat) -> Option<ShaderModule> {
+    let s = |d| {
+        Some(device.create_shader_module(&ShaderModuleDescriptor {
+            label: None,
+            source: make_spirv(d),
+            flags: ShaderFlags::empty(),
+        }))
+    };
     match format {
         TextureFormat::R8Unorm => s(include_bytes!("shaders/box_r8.comp.spv")),
         TextureFormat::R8Snorm => s(include_bytes!("shaders/box_r8_snorm.comp.spv")),
@@ -172,30 +177,27 @@ fn shader_for_format(
     }
 }
 
-fn bind_group_layout_for_format(
-    device: &wgpu::Device,
-    format: &wgpu::TextureFormat,
-) -> wgpu::BindGroupLayout {
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+fn bind_group_layout_for_format(device: &Device, format: TextureFormat) -> BindGroupLayout {
+    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
         label: None,
         entries: &[
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStage::COMPUTE,
-                ty: wgpu::BindingType::StorageTexture {
-                    dimension: wgpu::TextureViewDimension::D2,
-                    format: *format,
-                    readonly: true,
+                visibility: ShaderStage::COMPUTE,
+                ty: BindingType::StorageTexture {
+                    access: StorageTextureAccess::ReadOnly,
+                    format,
+                    view_dimension: TextureViewDimension::D2,
                 },
                 count: None,
             },
-            wgpu::BindGroupLayoutEntry {
+            BindGroupLayoutEntry {
                 binding: 1,
-                visibility: wgpu::ShaderStage::COMPUTE,
-                ty: wgpu::BindingType::StorageTexture {
-                    dimension: wgpu::TextureViewDimension::D2,
-                    format: *format,
-                    readonly: false,
+                visibility: ShaderStage::COMPUTE,
+                ty: BindingType::StorageTexture {
+                    access: StorageTextureAccess::ReadOnly,
+                    format,
+                    view_dimension: TextureViewDimension::D2,
                 },
                 count: None,
             },
@@ -204,23 +206,21 @@ fn bind_group_layout_for_format(
 }
 
 fn compute_pipeline_for_format(
-    device: &wgpu::Device,
-    module: &wgpu::ShaderModule,
-    bind_group_layout: &wgpu::BindGroupLayout,
-    format: &wgpu::TextureFormat,
-) -> wgpu::ComputePipeline {
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+    device: &Device,
+    module: &ShaderModule,
+    bind_group_layout: &BindGroupLayout,
+    format: TextureFormat,
+) -> ComputePipeline {
+    let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: None,
         bind_group_layouts: &[&bind_group_layout],
         push_constant_ranges: &[],
     });
-    device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+    device.create_compute_pipeline(&ComputePipelineDescriptor {
         label: Some(&format!("wgpu-mipmap-compute-pipeline-{:?}", format)),
         layout: Some(&pipeline_layout),
-        compute_stage: wgpu::ProgrammableStageDescriptor {
-            module: &module,
-            entry_point: "main",
-        },
+        module,
+        entry_point: "main",
     })
 }
 
@@ -280,10 +280,10 @@ mod tests {
             usage: ComputeMipmapGenerator::required_usage(),
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let res = generate_test(&texture_descriptor).await;
             assert!(res.is_ok());
-        })());
+        });
     }
 
     #[test]
@@ -308,11 +308,11 @@ mod tests {
             usage: ComputeMipmapGenerator::required_usage(),
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let res = generate_test(&texture_descriptor).await;
             assert!(res.is_err());
             assert!(res.err() == Some(Error::NpotTexture));
-        })());
+        });
     }
 
     #[test]
@@ -337,11 +337,11 @@ mod tests {
             usage: wgpu::TextureUsage::empty(),
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let res = generate_test(&texture_descriptor).await;
             assert!(res.is_err());
             assert!(res.err() == Some(Error::UnsupportedUsage(wgpu::TextureUsage::empty())));
-        })());
+        });
     }
 
     #[test]
@@ -366,10 +366,10 @@ mod tests {
             usage: ComputeMipmapGenerator::required_usage(),
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let res = generate_test(&texture_descriptor).await;
             assert!(res.is_err());
             assert!(res.err() == Some(Error::UnknownFormat(wgpu::TextureFormat::Rg16Sint)));
-        })());
+        });
     }
 }
