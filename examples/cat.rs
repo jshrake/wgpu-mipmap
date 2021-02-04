@@ -24,9 +24,9 @@ fn main() {
             let (device, queue) = adapter
                 .request_device(
                     &wgpu::DeviceDescriptor {
+                        label: None,
                         features: wgpu::Features::empty(),
                         limits: wgpu::Limits::default(),
-                        shader_validation: true,
                     },
                     None,
                 )

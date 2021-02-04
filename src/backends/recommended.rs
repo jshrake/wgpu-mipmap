@@ -1,8 +1,5 @@
-use super::compute::*;
-use super::copy::*;
-use super::render::*;
+use super::{compute::*, copy::*, render::*};
 use crate::core::*;
-use log::{debug, warn};
 
 /// Generates mipmaps for textures with any usage using the compute, render, or copy backends.
 #[derive(Debug)]
@@ -50,8 +47,8 @@ impl RecommendedMipmapGenerator {
     ) -> Self {
         for format in format_hints {
             if !SUPPORTED_FORMATS.contains(&format) {
-                warn!("[RecommendedMipmapGenerator::new] No support for requested texture format {:?}", *format);
-                warn!("[RecommendedMipmapGenerator::new] Attempting to continue, but calls to generate may fail or produce unexpected results.");
+                log::warn!("[RecommendedMipmapGenerator::new] No support for requested texture format {:?}", *format);
+                log::warn!("[RecommendedMipmapGenerator::new] Attempting to continue, but calls to generate may fail or produce unexpected results.");
                 continue;
             }
         }
@@ -75,7 +72,7 @@ impl MipmapGenerator for RecommendedMipmapGenerator {
             .generate(device, encoder, texture, texture_descriptor)
         {
             Err(e) => {
-                debug!("[RecommendedMipmapGenerator::generate] compute error {}.\n falling back to render backend.", e);
+                log::debug!("[RecommendedMipmapGenerator::generate] compute error {}.\n falling back to render backend.", e);
             }
             ok => return ok,
         };
@@ -85,7 +82,7 @@ impl MipmapGenerator for RecommendedMipmapGenerator {
             .generate(device, encoder, texture, texture_descriptor)
         {
             Err(e) => {
-                debug!("[RecommendedMipmapGenerator::generate] render error {}.\n falling back to copy backend.", e);
+                log::debug!("[RecommendedMipmapGenerator::generate] render error {}.\n falling back to copy backend.", e);
             }
             ok => return ok,
         };
@@ -97,7 +94,7 @@ impl MipmapGenerator for RecommendedMipmapGenerator {
             texture_descriptor,
         ) {
             Err(e) => {
-                debug!("[RecommendedMipmapGenerator::generate] copy error {}.", e);
+                log::debug!("[RecommendedMipmapGenerator::generate] copy error {}.", e);
             }
             ok => return ok,
         }
@@ -156,7 +153,7 @@ mod tests {
             label: None,
         };
         dbg!(format);
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let mipmap_buffers = generate_and_copy_to_cpu_recommended(&data, &texture_descriptor)
                 .await
                 .unwrap();
@@ -170,7 +167,7 @@ mod tests {
                 );
             }
             // The last mip map level should be 1x1 and the value is an average of 0 and 255
-            mipmap_buffers.last().map(|mip| {
+            if let Some(mip) = mipmap_buffers.last() {
                 let width = mip.dimensions.width;
                 let height = mip.dimensions.height;
                 let bpp = mip.dimensions.bytes_per_channel;
@@ -185,8 +182,8 @@ mod tests {
                 // Depending on the platform and underlying implementation,
                 // this might round up or down so check 127 and 128
                 assert!(data[0] == 127 || data[0] == 128);
-            });
-        })());
+            }
+        });
     }
 
     #[test]
@@ -215,7 +212,7 @@ mod tests {
                 | wgpu::TextureUsage::COPY_SRC,
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let mipmap_buffers = generate_and_copy_to_cpu_recommended(&data, &texture_descriptor)
                 .await
                 .unwrap();
@@ -226,9 +223,9 @@ mod tests {
                         == mip.dimensions.unpadded_bytes_per_row * mip.dimensions.height
                 );
             }
-            // The last mip map level should be 1x1 and each of the 4 componenets per pixel
+            // The last mip map level should be 1x1 and each of the 4 components per pixel
             // should be the average of 0 and 255, but in sRGB color space
-            mipmap_buffers.last().map(|mip| {
+            if let Some(mip) = mipmap_buffers.last() {
                 let width = mip.dimensions.width;
                 let height = mip.dimensions.height;
                 let bpp = mip.dimensions.bytes_per_channel;
@@ -240,8 +237,8 @@ mod tests {
                 assert!(data[1] == 127 || data[1] == 128);
                 assert!(data[2] == 127 || data[2] == 128);
                 assert!(data[3] == 255);
-            });
-        })());
+            }
+        });
     }
 
     #[test]
@@ -270,7 +267,7 @@ mod tests {
                 | wgpu::TextureUsage::COPY_SRC,
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let mipmap_buffers = generate_and_copy_to_cpu_recommended(&data, &texture_descriptor)
                 .await
                 .unwrap();
@@ -281,9 +278,9 @@ mod tests {
                         == mip.dimensions.unpadded_bytes_per_row * mip.dimensions.height
                 );
             }
-            // The last mip map level should be 1x1 and each of the 4 componenets per pixel
+            // The last mip map level should be 1x1 and each of the 4 components per pixel
             // should be the average of 0 and 255, but in sRGB color space
-            mipmap_buffers.last().map(|mip| {
+            if let Some(mip) = mipmap_buffers.last() {
                 let width = mip.dimensions.width;
                 let height = mip.dimensions.height;
                 let bpp = mip.dimensions.bytes_per_channel;
@@ -301,8 +298,8 @@ mod tests {
                 assert!(data[1] == 187 || data[1] == 188);
                 assert!(data[2] == 187 || data[2] == 188);
                 assert!(data[3] == 255);
-            });
-        })());
+            }
+        });
     }
 
     #[test]
@@ -331,7 +328,7 @@ mod tests {
                 | wgpu::TextureUsage::COPY_SRC,
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let mipmap_buffers = generate_and_copy_to_cpu_recommended(&data, &texture_descriptor)
                 .await
                 .unwrap();
@@ -345,7 +342,7 @@ mod tests {
                 );
             }
             // The last mip map level should be 1x1 and the value is an average of 0 and 255
-            mipmap_buffers.last().map(|mip| {
+            if let Some(mip) = mipmap_buffers.last() {
                 let width = mip.dimensions.width;
                 let height = mip.dimensions.height;
                 let bpp = mip.dimensions.bytes_per_channel;
@@ -359,8 +356,8 @@ mod tests {
                 // Depending on the platform and underlying implementation,
                 // this might round up or down so check 127 and 128
                 assert!(data[0] == 127 || data[0] == 128);
-            });
-        })());
+            }
+        });
     }
 
     #[test]
@@ -389,7 +386,7 @@ mod tests {
                 | wgpu::TextureUsage::COPY_SRC,
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let mipmap_buffers = generate_and_copy_to_cpu_recommended(&data, &texture_descriptor)
                 .await
                 .unwrap();
@@ -400,9 +397,9 @@ mod tests {
                         == mip.dimensions.unpadded_bytes_per_row * mip.dimensions.height
                 );
             }
-            // The last mip map level should be 1x1 and each of the 4 componenets per pixel
+            // The last mip map level should be 1x1 and each of the 4 components per pixel
             // should be the average of 0 and 255
-            mipmap_buffers.last().map(|mip| {
+            if let Some(mip) = mipmap_buffers.last() {
                 let width = mip.dimensions.width;
                 let height = mip.dimensions.height;
                 let bpp = mip.dimensions.bytes_per_channel;
@@ -414,8 +411,8 @@ mod tests {
                 assert!(data[1] == 127 || data[1] == 128);
                 assert!(data[2] == 127 || data[2] == 128);
                 assert!(data[3] == 255);
-            });
-        })());
+            }
+        });
     }
 
     #[test]
@@ -444,7 +441,7 @@ mod tests {
                 | wgpu::TextureUsage::COPY_SRC,
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let mipmap_buffers = generate_and_copy_to_cpu_recommended(&data, &texture_descriptor)
                 .await
                 .unwrap();
@@ -455,9 +452,9 @@ mod tests {
                         == mip.dimensions.unpadded_bytes_per_row * mip.dimensions.height
                 );
             }
-            // The last mip map level should be 1x1 and each of the 4 componenets per pixel
+            // The last mip map level should be 1x1 and each of the 4 components per pixel
             // should be the average of 0 and 255, but in sRGB color space
-            mipmap_buffers.last().map(|mip| {
+            if let Some(mip) = mipmap_buffers.last() {
                 let width = mip.dimensions.width;
                 let height = mip.dimensions.height;
                 let bpp = mip.dimensions.bytes_per_channel;
@@ -476,8 +473,8 @@ mod tests {
                 assert!(data[1] == 187 || data[1] == 188);
                 assert!(data[2] == 187 || data[2] == 188);
                 assert!(data[3] == 255);
-            });
-        })());
+            }
+        });
     }
 
     #[test]
@@ -506,7 +503,7 @@ mod tests {
                 | wgpu::TextureUsage::COPY_SRC,
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let mipmap_buffers = generate_and_copy_to_cpu_recommended(
                 bytemuck::cast_slice(&data),
                 &texture_descriptor,
@@ -520,9 +517,9 @@ mod tests {
                         == mip.dimensions.unpadded_bytes_per_row * mip.dimensions.height
                 );
             }
-            // The last mip map level should be 1x1 and each of the 4 componenets per pixel
+            // The last mip map level should be 1x1 and each of the 4 components per pixel
             // should be the average of 0.0 and 1.0
-            mipmap_buffers.last().map(|mip| {
+            if let Some(mip) = mipmap_buffers.last() {
                 let width = mip.dimensions.width;
                 let height = mip.dimensions.height;
                 let bpp = mip.dimensions.bytes_per_channel;
@@ -532,12 +529,12 @@ mod tests {
                 assert!(data.len() == width * height * bpp);
                 let data: &[f32] = bytemuck::try_cast_slice(data).unwrap();
                 dbg!(data);
-                assert!(data[0] == 0.5);
-                assert!(data[1] == 0.5);
-                assert!(data[2] == 0.5);
-                assert!(data[3] == 1.0);
-            });
-        })());
+                assert!((data[0] - 0.5).abs() < f32::EPSILON);
+                assert!((data[1] - 0.5).abs() < f32::EPSILON);
+                assert!((data[2] - 0.5).abs() < f32::EPSILON);
+                assert!((data[3] - 1.0).abs() < f32::EPSILON);
+            }
+        });
     }
 
     #[test]
@@ -566,7 +563,7 @@ mod tests {
                 | wgpu::TextureUsage::COPY_SRC,
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let mipmap_buffers = generate_and_copy_to_cpu_recommended(
                 bytemuck::cast_slice(&data),
                 &texture_descriptor,
@@ -580,9 +577,9 @@ mod tests {
                         == mip.dimensions.unpadded_bytes_per_row * mip.dimensions.height
                 );
             }
-            // The last mip map level should be 1x1 and each of the 4 componenets per pixel
+            // The last mip map level should be 1x1 and each of the 4 components per pixel
             // should be the average of 0.0 and 1.0
-            mipmap_buffers.last().map(|mip| {
+            if let Some(mip) = mipmap_buffers.last() {
                 let width = mip.dimensions.width;
                 let height = mip.dimensions.height;
                 let bpp = mip.dimensions.bytes_per_channel;
@@ -592,12 +589,12 @@ mod tests {
                 assert!(data.len() == width * height * bpp);
                 let data: &[f32] = bytemuck::try_cast_slice(data).unwrap();
                 dbg!(data);
-                assert!(data[0] == 0.5);
-                assert!(data[1] == 0.5);
-                assert!(data[2] == 0.5);
-                assert!(data[3] == 1.0);
-            });
-        })());
+                assert!((data[0] - 0.5).abs() < f32::EPSILON);
+                assert!((data[1] - 0.5).abs() < f32::EPSILON);
+                assert!((data[2] - 0.5).abs() < f32::EPSILON);
+                assert!((data[3] - 1.0).abs() < f32::EPSILON);
+            }
+        });
     }
 
     #[test]
@@ -626,7 +623,7 @@ mod tests {
                 | wgpu::TextureUsage::COPY_DST,
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let mipmap_buffers = generate_and_copy_to_cpu_recommended(&data, &texture_descriptor)
                 .await
                 .unwrap();
@@ -637,9 +634,9 @@ mod tests {
                         == mip.dimensions.unpadded_bytes_per_row * mip.dimensions.height
                 );
             }
-            // The last mip map level should be 1x1 and each of the 4 componenets per pixel
+            // The last mip map level should be 1x1 and each of the 4 components per pixel
             // should be the average of 0 and 255
-            mipmap_buffers.last().map(|mip| {
+            if let Some(mip) = mipmap_buffers.last() {
                 let width = mip.dimensions.width;
                 let height = mip.dimensions.height;
                 let bpp = mip.dimensions.bytes_per_channel;
@@ -652,7 +649,7 @@ mod tests {
                 assert!(data[1] == 127 || data[1] == 128);
                 assert!(data[2] == 127 || data[2] == 128);
                 assert!(data[3] == 255);
-            });
-        })());
+            }
+        });
     }
 }

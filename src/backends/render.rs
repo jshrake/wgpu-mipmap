@@ -1,123 +1,231 @@
-use crate::core::*;
-use crate::util::get_mip_extent;
-use log::warn;
-use std::collections::HashMap;
+use crate::{core::*, util::get_mip_extent};
+use std::{collections::HashMap, num::NonZeroU32};
+use wgpu::{
+    util::make_spirv, AddressMode, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
+    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, CommandEncoder,
+    CullMode, Device, FilterMode, FragmentState, FrontFace, LoadOp, MultisampleState, Operations,
+    PipelineLayoutDescriptor, PrimitiveState, RenderPassColorAttachmentDescriptor,
+    RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerDescriptor,
+    ShaderFlags, ShaderModuleDescriptor, ShaderStage, Texture, TextureAspect, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureSampleType, TextureUsage, TextureViewDescriptor,
+    TextureViewDimension, VertexState,
+};
 
 /// Generates mipmaps for textures with output attachment usage.
 #[derive(Debug)]
 pub struct RenderMipmapGenerator {
-    sampler: wgpu::Sampler,
-    layout_cache: HashMap<wgpu::TextureComponentType, wgpu::BindGroupLayout>,
-    pipeline_cache: HashMap<wgpu::TextureFormat, wgpu::RenderPipeline>,
+    sampler: Sampler,
+    layout_cache: HashMap<TextureSampleType, BindGroupLayout>,
+    pipeline_cache: HashMap<TextureFormat, RenderPipeline>,
+}
+
+fn to_sample_type(format: TextureFormat) -> TextureSampleType {
+    match format {
+        TextureFormat::R8Uint
+        | TextureFormat::R16Uint
+        | TextureFormat::Rg8Uint
+        | TextureFormat::R32Uint
+        | TextureFormat::Rg16Uint
+        | TextureFormat::Rgba8Uint
+        | TextureFormat::Rg32Uint
+        | TextureFormat::Rgba16Uint
+        | TextureFormat::Rgba32Uint => TextureSampleType::Uint,
+
+        TextureFormat::R8Sint
+        | TextureFormat::R16Sint
+        | TextureFormat::Rg8Sint
+        | TextureFormat::R32Sint
+        | TextureFormat::Rg16Sint
+        | TextureFormat::Rgba8Sint
+        | TextureFormat::Rg32Sint
+        | TextureFormat::Rgba16Sint
+        | TextureFormat::Rgba32Sint => TextureSampleType::Sint,
+
+        TextureFormat::R8Unorm
+        | TextureFormat::R8Snorm
+        | TextureFormat::R16Float
+        | TextureFormat::Rg8Unorm
+        | TextureFormat::Rg8Snorm
+        | TextureFormat::R32Float
+        | TextureFormat::Rg16Float
+        | TextureFormat::Rgba8Unorm
+        | TextureFormat::Rgba8UnormSrgb
+        | TextureFormat::Rgba8Snorm
+        | TextureFormat::Bgra8Unorm
+        | TextureFormat::Bgra8UnormSrgb
+        | TextureFormat::Rgb10a2Unorm
+        | TextureFormat::Rg11b10Float
+        | TextureFormat::Rg32Float
+        | TextureFormat::Rgba16Float
+        | TextureFormat::Rgba32Float
+        | TextureFormat::Depth32Float
+        | TextureFormat::Depth24Plus
+        | TextureFormat::Depth24PlusStencil8
+        | TextureFormat::Bc1RgbaUnorm
+        | TextureFormat::Bc1RgbaUnormSrgb
+        | TextureFormat::Bc2RgbaUnorm
+        | TextureFormat::Bc2RgbaUnormSrgb
+        | TextureFormat::Bc3RgbaUnorm
+        | TextureFormat::Bc3RgbaUnormSrgb
+        | TextureFormat::Bc4RUnorm
+        | TextureFormat::Bc4RSnorm
+        | TextureFormat::Bc5RgUnorm
+        | TextureFormat::Bc5RgSnorm
+        | TextureFormat::Bc6hRgbUfloat
+        | TextureFormat::Bc6hRgbSfloat
+        | TextureFormat::Bc7RgbaUnorm
+        | TextureFormat::Bc7RgbaUnormSrgb
+        | TextureFormat::Etc2RgbUnorm
+        | TextureFormat::Etc2RgbUnormSrgb
+        | TextureFormat::Etc2RgbA1Unorm
+        | TextureFormat::Etc2RgbA1UnormSrgb
+        | TextureFormat::Etc2RgbA8Unorm
+        | TextureFormat::Etc2RgbA8UnormSrgb
+        | TextureFormat::EacRUnorm
+        | TextureFormat::EacRSnorm
+        | TextureFormat::EtcRgUnorm
+        | TextureFormat::EtcRgSnorm
+        | TextureFormat::Astc4x4RgbaUnorm
+        | TextureFormat::Astc4x4RgbaUnormSrgb
+        | TextureFormat::Astc5x4RgbaUnorm
+        | TextureFormat::Astc5x4RgbaUnormSrgb
+        | TextureFormat::Astc5x5RgbaUnorm
+        | TextureFormat::Astc5x5RgbaUnormSrgb
+        | TextureFormat::Astc6x5RgbaUnorm
+        | TextureFormat::Astc6x5RgbaUnormSrgb
+        | TextureFormat::Astc6x6RgbaUnorm
+        | TextureFormat::Astc6x6RgbaUnormSrgb
+        | TextureFormat::Astc8x5RgbaUnorm
+        | TextureFormat::Astc8x5RgbaUnormSrgb
+        | TextureFormat::Astc8x6RgbaUnorm
+        | TextureFormat::Astc8x6RgbaUnormSrgb
+        | TextureFormat::Astc10x5RgbaUnorm
+        | TextureFormat::Astc10x5RgbaUnormSrgb
+        | TextureFormat::Astc10x6RgbaUnorm
+        | TextureFormat::Astc10x6RgbaUnormSrgb
+        | TextureFormat::Astc8x8RgbaUnorm
+        | TextureFormat::Astc8x8RgbaUnormSrgb
+        | TextureFormat::Astc10x8RgbaUnorm
+        | TextureFormat::Astc10x8RgbaUnormSrgb
+        | TextureFormat::Astc10x10RgbaUnorm
+        | TextureFormat::Astc10x10RgbaUnormSrgb
+        | TextureFormat::Astc12x10RgbaUnorm
+        | TextureFormat::Astc12x10RgbaUnormSrgb
+        | TextureFormat::Astc12x12RgbaUnorm
+        | TextureFormat::Astc12x12RgbaUnormSrgb => TextureSampleType::Float { filterable: true },
+    }
 }
 
 impl RenderMipmapGenerator {
     /// Returns the texture usage `RenderMipmapGenerator` requires for mipmap generation.
-    pub fn required_usage() -> wgpu::TextureUsage {
-        wgpu::TextureUsage::OUTPUT_ATTACHMENT | wgpu::TextureUsage::SAMPLED
+    pub fn required_usage() -> TextureUsage {
+        TextureUsage::RENDER_ATTACHMENT | TextureUsage::SAMPLED
     }
 
     /// Creates a new `RenderMipmapGenerator`. Once created, it can be used repeatedly to
     /// generate mipmaps for any texture with format specified in `format_hints`.
-    pub fn new_with_format_hints(
-        device: &wgpu::Device,
-        format_hints: &[wgpu::TextureFormat],
-    ) -> Self {
+    pub fn new_with_format_hints(device: &Device, format_hints: &[TextureFormat]) -> Self {
         // A sampler for box filter with clamp to edge behavior
         // In practice, the final result may be implementation dependent
         // - [Vulkan](https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#textures-texel-linear-filtering)
         // - [Metal](https://developer.apple.com/documentation/metal/mtlsamplerminmagfilter/linear)
         // - [DX12](https://docs.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_filter)
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        let sampler = device.create_sampler(&SamplerDescriptor {
             label: Some(&"wgpu-mipmap-sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Nearest,
+            mipmap_filter: FilterMode::Nearest,
             ..Default::default()
         });
 
         let render_layout_cache = {
             let mut layout_cache = HashMap::new();
             // For now, we only cache a bind group layout for floating-point textures
-            for component_type in &[wgpu::TextureComponentType::Float] {
+            for &sample_type in &[TextureSampleType::Float { filterable: true }] {
                 let bind_group_layout =
-                    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                        label: Some(&format!("wgpu-mipmap-bg-layout-{:?}", component_type)),
+                    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                        label: Some(&format!("wgpu-mipmap-bg-layout-{:?}", sample_type)),
                         entries: &[
-                            wgpu::BindGroupLayoutEntry {
+                            BindGroupLayoutEntry {
                                 binding: 0,
-                                visibility: wgpu::ShaderStage::FRAGMENT,
-                                ty: wgpu::BindingType::SampledTexture {
-                                    dimension: wgpu::TextureViewDimension::D2,
-                                    component_type: *component_type,
+                                visibility: ShaderStage::FRAGMENT,
+                                ty: BindingType::Texture {
+                                    view_dimension: TextureViewDimension::D2,
+                                    sample_type,
                                     multisampled: false,
                                 },
                                 count: None,
                             },
-                            wgpu::BindGroupLayoutEntry {
+                            BindGroupLayoutEntry {
                                 binding: 1,
-                                visibility: wgpu::ShaderStage::FRAGMENT,
-                                ty: wgpu::BindingType::Sampler { comparison: false },
+                                visibility: ShaderStage::FRAGMENT,
+                                ty: BindingType::Sampler {
+                                    filtering: true,
+                                    comparison: false,
+                                },
                                 count: None,
                             },
                         ],
                     });
-                layout_cache.insert(*component_type, bind_group_layout);
+                layout_cache.insert(sample_type, bind_group_layout);
             }
             layout_cache
         };
 
         let render_pipeline_cache = {
             let mut pipeline_cache = HashMap::new();
-            let vertex_module = device.create_shader_module(wgpu::util::make_spirv(
-                include_bytes!("shaders/triangle.vert.spv"),
-            ));
-            let box_filter = device.create_shader_module(wgpu::util::make_spirv(include_bytes!(
-                "shaders/box.frag.spv"
-            )));
+            let vertex_module = device.create_shader_module(&ShaderModuleDescriptor {
+                label: None,
+                source: make_spirv(include_bytes!("shaders/triangle.vert.spv")),
+                flags: ShaderFlags::empty(),
+            });
+            let box_filter = device.create_shader_module(&ShaderModuleDescriptor {
+                label: None,
+                source: make_spirv(include_bytes!("shaders/box.frag.spv")),
+                flags: ShaderFlags::empty(),
+            });
             for format in format_hints {
                 let fragment_module = &box_filter;
 
-                let component_type = wgpu::TextureComponentType::from(*format);
-                if let Some(bind_group_layout) = render_layout_cache.get(&component_type) {
-                    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                let sample_type = to_sample_type(*format);
+                if let Some(bind_group_layout) = render_layout_cache.get(&sample_type) {
+                    let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
                         label: None,
                         bind_group_layouts: &[bind_group_layout],
                         push_constant_ranges: &[],
                     });
-                    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
                         label: Some(&format!("wgpu-mipmap-render-pipeline-{:?}", format)),
                         layout: Some(&layout),
-                        vertex_stage: wgpu::ProgrammableStageDescriptor {
+                        vertex: VertexState {
                             module: &vertex_module,
                             entry_point: "main",
+                            buffers: &[],
                         },
-                        fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
+                        primitive: PrimitiveState {
+                            topology: wgpu::PrimitiveTopology::TriangleList,
+                            front_face: FrontFace::Ccw,
+                            cull_mode: CullMode::Back,
+                            ..Default::default()
+                        },
+                        depth_stencil: None,
+                        multisample: MultisampleState {
+                            count: 1,
+                            mask: !0,
+                            alpha_to_coverage_enabled: false,
+                        },
+                        fragment: Some(FragmentState {
                             module: &fragment_module,
                             entry_point: "main",
+                            targets: &[(*format).into()],
                         }),
-                        rasterization_state: Some(wgpu::RasterizationStateDescriptor {
-                            front_face: wgpu::FrontFace::Ccw,
-                            cull_mode: wgpu::CullMode::Back,
-                            ..Default::default()
-                        }),
-                        primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-                        color_states: &[(*format).into()],
-                        depth_stencil_state: None,
-                        vertex_state: wgpu::VertexStateDescriptor {
-                            index_format: wgpu::IndexFormat::Uint16,
-                            vertex_buffers: &[],
-                        },
-                        sample_count: 1,
-                        sample_mask: !0,
-                        alpha_to_coverage_enabled: false,
                     });
                     pipeline_cache.insert(*format, pipeline);
                 } else {
-                    warn!(
+                    log::warn!(
                         "RenderMipmapGenerator does not support requested format {:?}",
                         format
                     );
@@ -140,12 +248,12 @@ impl RenderMipmapGenerator {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn generate_src_dst(
         &self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        src_texture: &wgpu::Texture,
-        dst_texture: &wgpu::Texture,
-        src_texture_descriptor: &wgpu::TextureDescriptor,
-        dst_texture_descriptor: &wgpu::TextureDescriptor,
+        device: &Device,
+        encoder: &mut CommandEncoder,
+        src_texture: &Texture,
+        dst_texture: &Texture,
+        src_texture_descriptor: &TextureDescriptor,
+        dst_texture_descriptor: &TextureDescriptor,
         dst_mip_offset: u32,
     ) -> Result<(), Error> {
         let src_format = src_texture_descriptor.format;
@@ -179,11 +287,11 @@ impl RenderMipmapGenerator {
             panic!("src and dst texture extents must match or dst must be half the size of src");
         }
 
-        if src_dim != wgpu::TextureDimension::D2 {
+        if src_dim != TextureDimension::D2 {
             return Err(Error::UnsupportedDimension(src_dim));
         }
         // src texture must be sampled
-        if !src_usage.contains(wgpu::TextureUsage::SAMPLED) {
+        if !src_usage.contains(TextureUsage::SAMPLED) {
             return Err(Error::UnsupportedUsage(src_usage));
         }
         // dst texture must be sampled and output attachment
@@ -195,10 +303,10 @@ impl RenderMipmapGenerator {
             .pipeline_cache
             .get(&format)
             .ok_or(Error::UnknownFormat(format))?;
-        let component_type = wgpu::TextureComponentType::from(format);
+        let sample_type = to_sample_type(format);
         let layout = self
             .layout_cache
-            .get(&component_type)
+            .get(&sample_type)
             .ok_or(Error::UnknownFormat(format))?;
         let views = (0..src_mip_count)
             .map(|mip_level| {
@@ -209,13 +317,13 @@ impl RenderMipmapGenerator {
                 } else {
                     (dst_texture, mip_level - dst_mip_offset)
                 };
-                texture.create_view(&wgpu::TextureViewDescriptor {
+                texture.create_view(&TextureViewDescriptor {
                     label: None,
                     format: None,
                     dimension: None,
-                    aspect: wgpu::TextureAspect::All,
+                    aspect: TextureAspect::All,
                     base_mip_level,
-                    level_count: std::num::NonZeroU32::new(1),
+                    level_count: NonZeroU32::new(1),
                     array_layer_count: None,
                     base_array_layer: 0,
                 })
@@ -224,26 +332,27 @@ impl RenderMipmapGenerator {
         for mip in 1..src_mip_count as usize {
             let src_view = &views[mip - 1];
             let dst_view = &views[mip];
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let bind_group = device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
+                    BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&src_view),
+                        resource: BindingResource::TextureView(&src_view),
                     },
-                    wgpu::BindGroupEntry {
+                    BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        resource: BindingResource::Sampler(&self.sampler),
                     },
                 ],
             });
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: None,
+                color_attachments: &[RenderPassColorAttachmentDescriptor {
                     attachment: &dst_view,
                     resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
+                    ops: Operations {
+                        load: LoadOp::Load,
                         store: true,
                     },
                 }],
@@ -260,10 +369,10 @@ impl RenderMipmapGenerator {
 impl MipmapGenerator for RenderMipmapGenerator {
     fn generate(
         &self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        texture: &wgpu::Texture,
-        texture_descriptor: &wgpu::TextureDescriptor,
+        device: &Device,
+        encoder: &mut CommandEncoder,
+        texture: &Texture,
+        texture_descriptor: &TextureDescriptor,
     ) -> Result<(), Error> {
         self.generate_src_dst(
             device,
@@ -289,7 +398,7 @@ mod tests {
     #[allow(dead_code)]
     async fn generate_and_copy_to_cpu_render(
         buffer: &[u8],
-        texture_descriptor: &wgpu::TextureDescriptor<'_>,
+        texture_descriptor: &TextureDescriptor<'_>,
     ) -> Result<Vec<MipBuffer>, Error> {
         let (_instance, _adaptor, device, queue) = wgpu_setup().await;
         let generator = crate::backends::RenderMipmapGenerator::new_with_format_hints(
@@ -302,7 +411,7 @@ mod tests {
         )
     }
 
-    async fn generate_test(texture_descriptor: &wgpu::TextureDescriptor<'_>) -> Result<(), Error> {
+    async fn generate_test(texture_descriptor: &TextureDescriptor<'_>) -> Result<(), Error> {
         let (_instance, _adapter, device, _queue) = wgpu_setup().await;
         let generator =
             RenderMipmapGenerator::new_with_format_hints(&device, &[texture_descriptor.format]);
@@ -333,10 +442,10 @@ mod tests {
             usage: RenderMipmapGenerator::required_usage(),
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let res = generate_test(&texture_descriptor).await;
             assert!(res.is_ok());
-        })());
+        });
     }
 
     #[test]
@@ -361,11 +470,11 @@ mod tests {
             usage: wgpu::TextureUsage::empty(),
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let res = generate_test(&texture_descriptor).await;
             assert!(res.is_err());
             assert!(res.err() == Some(Error::UnsupportedUsage(wgpu::TextureUsage::empty())));
-        })());
+        });
     }
 
     #[test]
@@ -387,13 +496,13 @@ mod tests {
             format,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+            usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::RENDER_ATTACHMENT,
             label: None,
         };
-        futures::executor::block_on((|| async {
+        futures::executor::block_on(async {
             let res = generate_test(&texture_descriptor).await;
             assert!(res.is_err());
             assert!(res.err() == Some(Error::UnknownFormat(wgpu::TextureFormat::Rgba8Sint)));
-        })());
+        });
     }
 }

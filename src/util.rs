@@ -259,14 +259,17 @@ pub(crate) async fn wgpu_setup() -> (wgpu::Instance, wgpu::Adapter, wgpu::Device
     let (device, queue) = adapter
         .request_device(
             &wgpu::DeviceDescriptor {
+                label: None,
                 features: wgpu::Features::empty(),
                 limits: wgpu::Limits::default(),
-                shader_validation: true,
             },
             None,
         )
         .await
         .expect("Failed to create device");
+    device.on_uncaptured_error(|e| {
+        println!("Captured a wgpu error: {}", e);
+    });
     (instance, adapter, device, queue)
 }
 
